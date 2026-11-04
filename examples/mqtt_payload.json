@@ -1,0 +1,8 @@
+{
+  "machineCode": "CNC-024",
+  "machineId": "CNC-024",
+  "sensorType": "TEMPERATURE",
+  "value": 45.2,
+  "unit": "°C",
+  "timestamp": "2026-05-13T08:00:00.000Z"
+}

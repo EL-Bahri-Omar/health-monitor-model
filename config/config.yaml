@@ -1,0 +1,36 @@
+# SmartFactory AI — Configuration
+# Defines broker, feature-extraction, and threshold settings.
+
+mqtt:
+  host: localhost
+  port: 1883
+  keepalive: 60
+  topic_prefix: "factory/machines"
+  alert_topic: "factory/ai/alerts"
+  client_id: "smartfactory-ai-service"
+
+features:
+  sampling_interval_s: 3.0
+  window_size: 64
+  step_size: 32
+
+thresholds:
+  fault_confidence_threshold: 0.72
+  anomaly_score_threshold: 0.62
+  temperature_alert_c: 75.0
+  vibration_rms_alert: 8.5
+
+storage:
+  live_readings_csv: "data/live_readings.csv"
+  live_alerts_csv: "data/live_alerts.csv"
+
+simulation:
+  seed: 42
+  drop_rate: 0.05
+  default_rows: 12000
+
+backend:
+  api_url: "http://localhost:8080"
+  api_key: "smartfactory-ai-internal-2024"
+  api_email: ""
+  api_password: ""

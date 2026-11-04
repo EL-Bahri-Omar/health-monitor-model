@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-05-13T08:05:12.000Z",
+  "machine_code": "CNC-024",
+  "predicted_status": "degradation",
+  "confidence": 0.8742,
+  "anomaly_score": 0.6531,
+  "temperature": 63.4,
+  "vibration_rms": 5.12,
+  "reason": "fault_prediction:degradation,anomaly_score",
+  "severity": "WARNING"
+}
