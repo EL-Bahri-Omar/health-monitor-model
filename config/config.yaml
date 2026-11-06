@@ -11,8 +11,8 @@ mqtt:
 
 features:
   sampling_interval_s: 3.0
-  window_size: 64
-  step_size: 32
+  window_size: 20
+  step_size: 10
 
 thresholds:
   fault_confidence_threshold: 0.72

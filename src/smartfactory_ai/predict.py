@@ -48,6 +48,7 @@ class PredictionResult:
     features: dict[str, Any]
     estimated_hours_to_event: float | None = None  # hours until degradation/anomaly predicted
     driving_sensors: list[dict[str, Any]] = field(default_factory=list)  # sensors driving the prediction
+    recommended_fix: str | None = None  # actionable repair suggestion for technicians
 
 
 def _estimate_time_to_event(features: dict, label: str, sampling_interval_s: float) -> tuple[float | None, list[dict]]:
@@ -156,6 +157,88 @@ def _estimate_time_to_event(features: dict, label: str, sampling_interval_s: flo
     return round(min_hours, 1) if min_hours < float("inf") else None, driving
 
 
+def _generate_recommended_fix(features: dict, label: str, driving_sensors: list[dict]) -> str | None:
+    """Generate an actionable repair suggestion based on sensor analysis.
+
+    The fix is specific to whichever sensors are trending abnormally and
+    includes concrete actions a technician can take immediately.
+    """
+    if label == "normal":
+        return None
+
+    # Identify which sensors are driving the issue
+    problem_sensors = set()
+    for ds in driving_sensors:
+        sensor = ds.get("sensor", "")
+        if sensor in ("temperature", "vibration", "current", "rpm", "all", "model"):
+            problem_sensors.add(sensor)
+
+    # Also check raw feature values if driving_sensors is sparse
+    temp = features.get("temperature_mean", 0.0)
+    vib = features.get("vibration_rms", 0.0)
+    curr = features.get("current_mean", 0.0)
+    rpm = features.get("rpm_mean", 0.0)
+
+    if temp > SENSOR_THRESHOLDS["temperature"]["warning"]:
+        problem_sensors.add("temperature")
+    if vib > SENSOR_THRESHOLDS["vibration"]["warning"]:
+        problem_sensors.add("vibration")
+    if curr > SENSOR_THRESHOLDS["current"]["warning"]:
+        problem_sensors.add("current")
+    if rpm < SENSOR_THRESHOLDS["rpm"]["warning"]:
+        problem_sensors.add("rpm")
+
+    fixes = []
+
+    if label == "failure":
+        return "⛔ Stop the machine immediately. Cut power and contact a senior technician. Do not restart before full inspection."
+
+    # High temperature scenarios
+    if "temperature" in problem_sensors:
+        if temp > SENSOR_THRESHOLDS["temperature"]["critical"]:
+            fixes.append("🌡️ Stop the machine for 15-20 min to cool down. Check the ventilation system and coolant levels.")
+        else:
+            fixes.append("🌡️ Reduce workload. Check ventilation and clean air filters. If the trend continues, stop for 10 min.")
+
+    # High vibration scenarios
+    if "vibration" in problem_sensors:
+        if vib > SENSOR_THRESHOLDS["vibration"]["critical"]:
+            fixes.append("📳 Critical vibrations: stop and check bearings, motor shaft alignment, and mounting bolt tightness.")
+        else:
+            fixes.append("📳 Check mounting bolt tightness and rotating component balance. Lubricate friction points.")
+
+    # High current scenarios
+    if "current" in problem_sensors:
+        if curr > SENSOR_THRESHOLDS["current"]["critical"]:
+            fixes.append("⚡ Excessive current: reduce load immediately. Inspect electrical connections and variable frequency drive.")
+        else:
+            fixes.append("⚡ Check electrical connections, variable frequency drive, and mechanical load.")
+
+    # RPM drop scenarios
+    if "rpm" in problem_sensors:
+        if rpm < SENSOR_THRESHOLDS["rpm"]["critical"]:
+            fixes.append("🔄 Critical RPM: check drive belt, clutch, and motor. Possible mechanical blockage.")
+        else:
+            fixes.append("🔄 Speed drop detected: check belt, power supply voltage, and mechanical load.")
+
+    # Combined sensor patterns
+    if "temperature" in problem_sensors and "vibration" in problem_sensors:
+        fixes.append("⚠️ Worn bearing pattern: replace bearings and check shaft alignment.")
+    elif "temperature" in problem_sensors and "current" in problem_sensors:
+        fixes.append("⚠️ Possible motor overload: reduce load and check electrical insulation.")
+    elif "vibration" in problem_sensors and "rpm" in problem_sensors:
+        fixes.append("⚠️ Mechanical imbalance: rebalance rotating components and retighten mountings.")
+
+    # Model-based pattern without clear sensor
+    if "model" in problem_sensors or (not fixes and label in ("degradation", "anomaly")):
+        if label == "anomaly":
+            fixes.append("🤖 AI-detected anomaly: stop the machine for preventive inspection (15 min) and check critical components.")
+        else:
+            fixes.append("🤖 Progressive degradation: schedule preventive maintenance within the next few hours. Monitor sensor trends.")
+
+    return " | ".join(fixes) if fixes else None
+
+
 class FaultPredictor:
     """Loads models and runs fault classification + anomaly detection."""
 
@@ -189,6 +272,9 @@ class FaultPredictor:
             features, label, self.sampling_interval_s
         )
 
+        # Generate actionable repair suggestion for technicians
+        recommended_fix = _generate_recommended_fix(features, label, driving_sensors)
+
         return PredictionResult(
             label=label,
             confidence=confidence,
@@ -196,4 +282,5 @@ class FaultPredictor:
             features=features,
             estimated_hours_to_event=estimated_hours,
             driving_sensors=driving_sensors,
+            recommended_fix=recommended_fix,
         )

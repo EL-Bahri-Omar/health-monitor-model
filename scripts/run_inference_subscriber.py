@@ -92,6 +92,8 @@ def post_to_backend(cfg, machine_code: str, result, features: dict) -> None:
         # Sprint 9 — predictive time estimation
         "estimatedHoursToEvent": result.estimated_hours_to_event,
         "drivingSensors": result.driving_sensors,
+        # Sprint 10 — actionable repair suggestion for technicians
+        "recommendedFix": result.recommended_fix,
     }
     # Clé API interne pour l'authentification machine-to-machine
     api_key = cfg.backend.api_key if hasattr(cfg.backend, "api_key") and cfg.backend.api_key else "smartfactory-ai-internal-2024"
@@ -124,6 +126,10 @@ def main() -> None:
 
     # Per-machine buffers: each buffer holds unified 4-sensor readings
     window_buffers: dict[str, deque] = defaultdict(lambda: deque(maxlen=cfg.features.window_size))
+
+    # Per-machine step counter: predictions run every step_size readings
+    # after the first full window, so the model re-evaluates with fresh data
+    step_counters: dict[str, int] = defaultdict(int)
 
     # Per-machine partial snapshot: accumulates per-sensor MQTT messages
     # until all 4 sensors are received, then merges into one reading
@@ -177,7 +183,18 @@ def main() -> None:
             append_row_csv(cfg.storage.live_readings_csv, reading, READING_FIELDS)
             window_buffers[machine_code].append(reading)
 
-            if len(window_buffers[machine_code]) < cfg.features.window_size:
+            buf_len = len(window_buffers[machine_code])
+            if buf_len < cfg.features.window_size:
+                # Print progress while filling the initial window
+                if buf_len % 5 == 0:
+                    print(f"  [{machine_code}] buffering {buf_len}/{cfg.features.window_size} readings...")
+                return
+
+            # Run prediction every step_size readings after the first full window.
+            # This gives continuous early detection instead of waiting for the
+            # buffer to completely refill.
+            step_counters[machine_code] += 1
+            if step_counters[machine_code] % cfg.features.step_size != 0:
                 return
 
             # Run prediction on full window
@@ -186,7 +203,14 @@ def main() -> None:
             reason = alert_reason(result.features, result, cfg.thresholds)
 
             status_str = f"{result.label} (conf={result.confidence:.2f}, anomaly={result.anomaly_score:.2f})"
+            if result.recommended_fix:
+                status_str += f"\n  FIX: {result.recommended_fix[:80]}"
             print(f"[{machine_code}] {status_str}")
+
+            # Always post to backend so the frontend gets real-time predictions
+            # (even normal ones update the live prediction state).
+            if args.post_backend:
+                post_to_backend(cfg, machine_code, result, result.features)
 
             if reason:
                 alert = {
